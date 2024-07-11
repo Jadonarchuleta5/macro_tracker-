@@ -1,0 +1,166 @@
+from flask_sqlalchemy import SQLAlchemy
+
+db = SQLAlchemy()
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), unique=True, nullable=False)
+    password = db.Column(db.String(150), nullable=False)
+    entries = db.relationship('Entry', backref='user', lazy=True)
+
+class Entry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False)
+    food = db.Column(db.String(150), nullable=False)
+    carbohydrates = db.Column(db.Float, nullable=False)
+    proteins = db.Column(db.Float, nullable=False)
+    fats = db.Column(db.Float, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+4. Set Up Flask Application
+app.py
+python
+Copy code
+from flask import Flask, render_template, request, redirect, url_for, session
+from models import db, User, Entry
+from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///macro_tracker.db'
+app.config['SECRET_KEY'] = 'supersecretkey'
+db.init_app(app)
+
+@app.before_first_request
+def create_tables():
+    db.create_all()
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        hashed_password = generate_password_hash(password, method='sha256')
+        new_user = User(username=username, password=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+        return redirect(url_for('login'))
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password, password):
+            session['user_id'] = user.id
+            return redirect(url_for('index'))
+        return 'Invalid credentials'
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    return redirect(url_for('login'))
+
+@app.route('/')
+def index():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    user_id = session['user_id']
+    entries = Entry.query.filter_by(user_id=user_id).order_by(Entry.date.desc()).all()
+    return render_template('index.html', entries=entries)
+
+@app.route('/add', methods=['GET', 'POST'])
+def add():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        date = datetime.strptime(request.form['date'], '%Y-%m-%d')
+        food = request.form['food']
+        carbohydrates = float(request.form['carbohydrates'])
+        proteins = float(request.form['proteins'])
+        fats = float(request.form['fats'])
+        new_entry = Entry(date=date, food=food, carbohydrates=carbohydrates, proteins=proteins, fats=fats, user_id=session['user_id'])
+        db.session.add(new_entry)
+        db.session.commit()
+        return redirect(url_for('index'))
+    return render_template('add.html')
+
+if __name__ == '__main__':
+    app.run(debug=True)
+5. Create HTML Templates
+templates/register.html
+html
+Copy code
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Register</title>
+</head>
+<body>
+    <h2>Register</h2>
+    <form method="post">
+        Username: <input type="text" name="username"><br>
+        Password: <input type="password" name="password"><br>
+        <input type="submit" value="Register">
+    </form>
+</body>
+</html>
+templates/login.html
+html
+Copy code
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login</title>
+</head>
+<body>
+    <h2>Login</h2>
+    <form method="post">
+        Username: <input type="text" name="username"><br>
+        Password: <input type="password" name="password"><br>
+        <input type="submit" value="Login">
+    </form>
+</body>
+</html>
+templates/index.html
+html
+Copy code
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Macro Tracker</title>
+</head>
+<body>
+    <h2>Macro Tracker</h2>
+    <a href="{{ url_for('logout') }}">Logout</a> | 
+    <a href="{{ url_for('add') }}">Add Entry</a>
+    <h3>Your Entries</h3>
+    <ul>
+    {% for entry in entries %}
+        <li>{{ entry.date }} - {{ entry.food }} - Carbs: {{ entry.carbohydrates }}g, Proteins: {{ entry.proteins }}g, Fats: {{ entry.fats }}g</li>
+    {% endfor %}
+    </ul>
+</body>
+</html>
+templates/add.html
+html
+Copy code
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Add Entry</title>
+</head>
+<body>
+    <h2>Add Entry</h2>
+    <form method="post">
+        Date: <input type="date" name="date"><br>
+        Food: <input type="text" name="food"><br>
+        Carbohydrates: <input type="text" name="carbohydrates"><br>
+        Proteins: <input type="text" name="proteins"><br>
+        Fats: <input type="text" name="fats"><br>
+        <input type="submit" value="Add">
+    </form>
+</body>
+</html>
